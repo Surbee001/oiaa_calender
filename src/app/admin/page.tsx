@@ -5,47 +5,199 @@ import { User } from '@/types'
 import { Users, Settings, Shield, Plus, Edit2, Trash2, ArrowLeft } from 'lucide-react'
 import Link from 'next/link'
 import Footer from '@/components/Footer'
+import LoginForm from '@/components/LoginForm'
+import { getAllUsers, createUser, updateUser, deleteUser, isCurrentUserAdmin } from '@/lib/userManagement'
+import { supabase } from '@/lib/supabase'
 
-// Mock user data - replace with actual database calls
-const mockUsers: User[] = [
-  { id: '1', email: 'admin@oiaa.edu', name: 'OIAA Administrator', role: 'admin' },
-  { id: '2', email: 'coordinator@oiaa.edu', name: 'Event Coordinator', role: 'editor' },
-  { id: '3', email: 'assistant@oiaa.edu', name: 'Office Assistant', role: 'viewer' },
+// Initial admin users to seed the database
+const initialAdminUsers = [
+  { email: 'h.mroue@ajman.ac.ae', name: 'H. Mroue', role: 'admin' as const },
+  { email: 'ayesha.alfalasi@ajman.ac.ae', name: 'Ayesha Alfalasi', role: 'admin' as const },
+  { email: 'ibrahim.ragab@ajman.ac.ae', name: 'Ibrahim Ragab', role: 'admin' as const },
+  { email: 'l.alkalbani@ajman.ac.ae', name: 'L. Alkalbani', role: 'admin' as const },
 ]
 
 export default function AdminPage() {
+  const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const [authLoading, setAuthLoading] = useState(true)
   const [users, setUsers] = useState<User[]>([])
   const [showAddUser, setShowAddUser] = useState(false)
   const [editingUser, setEditingUser] = useState<User | null>(null)
   const [newUser, setNewUser] = useState({ name: '', email: '', role: 'viewer' as const })
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
-    // Load users - replace with actual API call
-    setUsers(mockUsers)
-  }, [])
-
-  const handleAddUser = () => {
-    if (newUser.name && newUser.email) {
-      const user: User = {
-        id: Date.now().toString(),
-        ...newUser,
+  // Seed initial admin users if database is empty
+  const seedAdminUsers = async () => {
+    try {
+      const existingUsers = await getAllUsers()
+      if (existingUsers.length === 0) {
+        console.log('Database is empty, seeding initial admin users...')
+        
+        // Database is empty, seed with initial admin users
+        const createdUsers = []
+        for (const adminUser of initialAdminUsers) {
+          try {
+            const newUser = await createUser(adminUser)
+            createdUsers.push(newUser)
+            console.log(`Created admin user: ${adminUser.email}`)
+          } catch (err: any) {
+            console.error(`Failed to create user ${adminUser.email}:`, err)
+            
+            // If user creation fails, try to check if they already exist in the database
+            try {
+              const existingUser = await getAllUsers()
+              const found = existingUser.find(u => u.email === adminUser.email)
+              if (found) {
+                createdUsers.push(found)
+                console.log(`User ${adminUser.email} already exists in database`)
+              }
+            } catch (checkErr) {
+              console.error('Error checking for existing user:', checkErr)
+            }
+          }
+        }
+        
+        // Return all users (existing + newly created)
+        const allUsers = await getAllUsers()
+        console.log(`Total users in database: ${allUsers.length}`)
+        return allUsers
       }
-      setUsers(prev => [...prev, user])
-      setNewUser({ name: '', email: '', role: 'viewer' })
-      setShowAddUser(false)
+      return existingUsers
+    } catch (err) {
+      console.error('Error seeding admin users:', err)
+      // Return empty array as fallback
+      return []
     }
   }
 
-  const handleUpdateUser = (userId: string, updates: Partial<User>) => {
-    setUsers(prev => prev.map(user => 
-      user.id === userId ? { ...user, ...updates } : user
-    ))
-    setEditingUser(null)
+  // Check authentication status
+  useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser()
+        
+        if (!user) {
+          setIsAuthenticated(false)
+          setAuthLoading(false)
+          return
+        }
+
+        // Check if user is admin
+        const isAdmin = await isCurrentUserAdmin()
+        if (!isAdmin) {
+          setError('Access denied. Admin privileges required.')
+          setIsAuthenticated(false)
+          setAuthLoading(false)
+          return
+        }
+
+        setIsAuthenticated(true)
+        setAuthLoading(false)
+      } catch (err) {
+        console.error('Auth check failed:', err)
+        setIsAuthenticated(false)
+        setAuthLoading(false)
+      }
+    }
+
+    checkAuth()
+
+    // Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        if (event === 'SIGNED_IN' && session) {
+          const isAdmin = await isCurrentUserAdmin()
+          setIsAuthenticated(isAdmin)
+        } else if (event === 'SIGNED_OUT') {
+          setIsAuthenticated(false)
+        }
+        setAuthLoading(false)
+      }
+    )
+
+    return () => subscription.unsubscribe()
+  }, [])
+
+  useEffect(() => {
+    const loadUsers = async () => {
+      if (!isAuthenticated) return
+      
+      try {
+        setLoading(true)
+        const userData = await seedAdminUsers()
+        setUsers(userData)
+        setError(null)
+      } catch (err) {
+        console.error('Error loading users:', err)
+        setError('Failed to load users')
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    loadUsers()
+  }, [isAuthenticated])
+
+  const handleAddUser = async () => {
+    if (newUser.name && newUser.email) {
+      try {
+        setError(null) // Clear any previous errors
+        console.log('Creating user:', newUser)
+        
+        const user = await createUser(newUser)
+        console.log('User created successfully:', user)
+        
+        setUsers(prev => [...prev, user])
+        setNewUser({ name: '', email: '', role: 'viewer' })
+        setShowAddUser(false)
+        
+        // Show success message temporarily
+        setTimeout(() => {
+          console.log(`Successfully added user: ${user.email}`)
+        }, 100)
+        
+      } catch (err: any) {
+        console.error('Error adding user:', err)
+        
+        let errorMessage = 'Failed to add user'
+        if (err.message.includes('duplicate key') || err.message.includes('already exists')) {
+          errorMessage = 'A user with this email already exists'
+        } else if (err.message.includes('invalid email')) {
+          errorMessage = 'Please enter a valid email address'
+        } else if (err.message.includes('permission')) {
+          errorMessage = 'Permission denied. Unable to create user.'
+        } else if (err.message) {
+          errorMessage = err.message
+        }
+        
+        setError(errorMessage)
+      }
+    }
   }
 
-  const handleDeleteUser = (userId: string) => {
+  const handleUpdateUser = async (userId: string, updates: Partial<User>) => {
+    try {
+      const updatedUser = await updateUser(userId, updates)
+      setUsers(prev => prev.map(user => 
+        user.id === userId ? updatedUser : user
+      ))
+      setEditingUser(null)
+    } catch (err) {
+      console.error('Error updating user:', err)
+      setError('Failed to update user')
+    }
+  }
+
+  const handleDeleteUser = async (userId: string) => {
     if (confirm('Are you sure you want to delete this user?')) {
-      setUsers(prev => prev.filter(user => user.id !== userId))
+      try {
+        await deleteUser(userId)
+        setUsers(prev => prev.filter(user => user.id !== userId))
+      } catch (err) {
+        console.error('Error deleting user:', err)
+        setError('Failed to delete user')
+      }
     }
   }
 
@@ -65,6 +217,33 @@ export default function AdminPage() {
       case 'viewer': return <Users className="h-4 w-4" />
       default: return <Users className="h-4 w-4" />
     }
+  }
+
+  const handleLoginSuccess = () => {
+    setIsAuthenticated(true)
+  }
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut()
+    setIsAuthenticated(false)
+    setUsers([])
+  }
+
+  // Show loading spinner while checking auth
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading...</p>
+        </div>
+      </div>
+    )
+  }
+
+  // Show login form if not authenticated
+  if (!isAuthenticated) {
+    return <LoginForm onLoginSuccess={handleLoginSuccess} />
   }
 
   return (
@@ -90,11 +269,30 @@ export default function AdminPage() {
                 </div>
               </div>
             </div>
+            <button
+              onClick={handleLogout}
+              className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-md transition-colors"
+            >
+              Logout
+            </button>
           </div>
         </div>
       </header>
 
       <main className="flex-1 container mx-auto px-4 py-8">
+        {/* Error Message */}
+        {error && (
+          <div className="mb-6 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
+            {error}
+            <button 
+              onClick={() => setError(null)} 
+              className="float-right font-bold text-red-700 hover:text-red-900"
+            >
+              ×
+            </button>
+          </div>
+        )}
+
         {/* Users Management */}
         <div className="bg-white rounded-lg shadow">
           <div className="px-6 py-4 border-b border-gray-200">
@@ -102,7 +300,8 @@ export default function AdminPage() {
               <h2 className="text-xl font-semibold text-gray-900">User Management</h2>
               <button
                 onClick={() => setShowAddUser(true)}
-                className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700"
+                disabled={loading}
+                className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Plus className="h-4 w-4 mr-2" />
                 Add User
@@ -129,7 +328,20 @@ export default function AdminPage() {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {users.map((user) => (
+                {loading ? (
+                  <tr>
+                    <td colSpan={4} className="px-6 py-4 text-center text-gray-500">
+                      Loading users...
+                    </td>
+                  </tr>
+                ) : users.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="px-6 py-4 text-center text-gray-500">
+                      No users found
+                    </td>
+                  </tr>
+                ) : (
+                  users.map((user) => (
                   <tr key={user.id} className="hover:bg-gray-50">
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div>
@@ -198,7 +410,8 @@ export default function AdminPage() {
                       </div>
                     </td>
                   </tr>
-                ))}
+                  ))
+                )}
               </tbody>
             </table>
           </div>
@@ -301,7 +514,9 @@ export default function AdminPage() {
               </button>
               <button
                 onClick={handleAddUser}
-                className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700"
+                disabled={loading}
+                className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Creates a new user in both Supabase Auth and the users database table"
               >
                 Add User
               </button>

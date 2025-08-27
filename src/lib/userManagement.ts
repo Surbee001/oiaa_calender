@@ -17,20 +17,83 @@ export async function getAllUsers(): Promise<User[]> {
 }
 
 export async function createUser(userData: Omit<User, 'id'>): Promise<User> {
-  // In a real implementation, you'd use Supabase Auth to create the user
-  // This is a simplified version for demonstration
-  const { data, error } = await supabase
-    .from('users')
-    .insert([userData])
-    .select()
-    .single()
+  try {
+    // First, create the auth user (this will send a magic link to the user's email)
+    const { data: authData, error: authError } = await supabase.auth.admin.createUser({
+      email: userData.email,
+      email_confirm: true, // Skip email confirmation for admin-created users
+      user_metadata: {
+        name: userData.name
+      }
+    })
 
-  if (error) {
-    console.error('Error creating user:', error)
+    if (authError) {
+      // If auth creation fails but the user might already exist, try to create user record anyway
+      if (authError.message.includes('already registered')) {
+        // User already exists in auth, try to find their ID and create profile
+        const { data: existingUser } = await supabase.auth.admin.listUsers({
+          page: 1,
+          perPage: 1000
+        })
+        
+        const foundUser = existingUser?.users?.find(u => u.email === userData.email)
+        if (foundUser) {
+          // Create user profile with existing auth ID
+          const { data: profileData, error: profileError } = await supabase
+            .from('users')
+            .insert([{ ...userData, id: foundUser.id }])
+            .select()
+            .single()
+
+          if (profileError) {
+            console.error('Error creating user profile:', profileError)
+            throw profileError
+          }
+
+          return profileData
+        }
+      }
+      
+      console.error('Error creating auth user:', authError)
+      throw authError
+    }
+
+    // Create the user profile in the users table
+    const { data: profileData, error: profileError } = await supabase
+      .from('users')
+      .insert([{ ...userData, id: authData.user.id }])
+      .select()
+      .single()
+
+    if (profileError) {
+      // If profile creation fails, we should clean up the auth user
+      await supabase.auth.admin.deleteUser(authData.user.id)
+      console.error('Error creating user profile:', profileError)
+      throw profileError
+    }
+
+    return profileData
+
+  } catch (error: any) {
+    // For users who might not have auth setup yet, fall back to creating profile only
+    if (error.message?.includes('admin') || error.status === 403) {
+      // Fallback: create user record with generated UUID (for development/demo)
+      const { data, error: insertError } = await supabase
+        .from('users')
+        .insert([{ ...userData, id: crypto.randomUUID() }])
+        .select()
+        .single()
+
+      if (insertError) {
+        console.error('Error creating user (fallback):', insertError)
+        throw insertError
+      }
+
+      return data
+    }
+    
     throw error
   }
-
-  return data
 }
 
 export async function updateUser(userId: string, updates: Partial<User>): Promise<User> {
