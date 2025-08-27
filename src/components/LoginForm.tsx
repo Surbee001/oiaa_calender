@@ -10,9 +10,10 @@ import { Mail, Loader2 } from 'lucide-react'
 
 interface LoginFormProps {
   onLoginSuccess: () => void
+  onGuestAccess: () => void
 }
 
-export default function LoginForm({ onLoginSuccess }: LoginFormProps) {
+export default function LoginForm({ onLoginSuccess, onGuestAccess }: LoginFormProps) {
   const [email, setEmail] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -119,9 +120,28 @@ export default function LoginForm({ onLoginSuccess }: LoginFormProps) {
             </Button>
           </form>
 
-          <div className="mt-6 text-center">
+          <div className="mt-6 text-center space-y-4">
+            <div className="relative">
+              <div className="absolute inset-0 flex items-center">
+                <span className="w-full border-t" />
+              </div>
+              <div className="relative flex justify-center text-xs uppercase">
+                <span className="bg-white px-2 text-gray-500">Or</span>
+              </div>
+            </div>
+            
+            <Button 
+              type="button" 
+              variant="outline" 
+              className="w-full" 
+              onClick={onGuestAccess}
+              disabled={loading}
+            >
+              Continue as Guest
+            </Button>
+            
             <p className="text-xs text-gray-500">
-              Need access? Contact your system administrator
+              Need admin access? Contact your system administrator
             </p>
           </div>
         </CardContent>

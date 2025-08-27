@@ -223,6 +223,11 @@ export default function AdminPage() {
     setIsAuthenticated(true)
   }
 
+  const handleGuestAccess = () => {
+    // Redirect guests to the main calendar page since admin panel requires admin privileges
+    window.location.href = '/'
+  }
+
   const handleLogout = async () => {
     await supabase.auth.signOut()
     setIsAuthenticated(false)
@@ -243,7 +248,7 @@ export default function AdminPage() {
 
   // Show login form if not authenticated
   if (!isAuthenticated) {
-    return <LoginForm onLoginSuccess={handleLoginSuccess} />
+    return <LoginForm onLoginSuccess={handleLoginSuccess} onGuestAccess={handleGuestAccess} />
   }
 
   return (

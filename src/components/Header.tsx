@@ -24,8 +24,8 @@ export default function Header({ events, viewMode, onExportPDF, onViewModeChange
 
   useEffect(() => {
     // TODO: Replace with actual admin check
-    // For now, we'll assume first user is admin (in production, check with database)
-    setIsAdmin(true) // Change this to actual admin check
+    // For now, we'll assume users are guests by default unless they've authenticated as admin
+    setIsAdmin(false) // Users start as guests, admin login required for admin access
     
     // Load custom filters from localStorage
     const saved = localStorage.getItem('oiaa-custom-filters')
@@ -109,14 +109,18 @@ export default function Header({ events, viewMode, onExportPDF, onViewModeChange
               Filters
             </button>
 
-            {isAdmin && (
-              <Link
-                href="/admin"
-                className="professional-button professional-button-secondary"
-              >
-                <Settings className="h-4 w-4 mr-2" />
-                Admin
-              </Link>
+            <Link
+              href="/admin"
+              className="professional-button professional-button-secondary"
+            >
+              <Settings className="h-4 w-4 mr-2" />
+              {isAdmin ? 'Admin' : 'Admin Login'}
+            </Link>
+
+            {!isAdmin && (
+              <div className="inline-flex items-center px-3 py-2 bg-yellow-50 border border-yellow-200 rounded-lg text-sm text-yellow-800">
+                Browsing as Guest
+              </div>
             )}
 
             <button
